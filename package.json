@@ -1,0 +1,62 @@
+{
+  "name": "jinge-i18n",
+  "version": "0.0.1",
+  "description": "i18n solution for jinge mvvm framework",
+  "main": "lib/index.js",
+  "types": "src/index.ts",
+  "bin": {
+    "i18n-extract": "./bin/i18n-extract.js"
+  },
+  "scripts": {
+    "build": "rm -rf ./lib && rm -rf ./compiler && node ./scripts/esbuild.js",
+    "dev": "WATCH=true npm run build",
+    "lint": "tsc --noEmit && eslint './{src,scripts}/**/*.{js,ts}' --fix",
+    "lint-staged": "lint-staged",
+    "prepare": "husky install"
+  },
+  "lint-staged": {
+    "*.{js,ts}": "eslint --fix"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jingeweb/jinge-i18n.git"
+  },
+  "license": "ISC",
+  "homepage": "https://github.com/jingeweb/jinge-i18n#readme",
+  "bugs": {
+    "url": "https://github.com/jingeweb/jinge-i18n/issues"
+  },
+  "keywords": [
+    "mvvm",
+    "spa"
+  ],
+  "author": "Yuhang Ge <abeyuhang@gmail.com>",
+  "dependencies": {
+    "@jingeweb/html5parser": "^0.0.4",
+    "csv-parse": "^5.2.0",
+    "csv-stringify": "^6.1.2",
+    "jinge-compiler": "^3.2.1",
+    "yargs": "^17.5.1"
+  },
+  "peerDependencies": {
+    "jinge": ">= jinge"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/yargs": "^17.0.10",
+    "@typescript-eslint/eslint-plugin": "^5.28.0",
+    "@typescript-eslint/parser": "^5.28.0",
+    "chokidar": "^3.5.3",
+    "esbuild": "^0.14.46",
+    "eslint": "^8.17.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-import-resolver-typescript": "^2.7.1",
+    "eslint-plugin-import": "^2.26.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "husky": "^8.0.1",
+    "jinge": "^3.2.0",
+    "lint-staged": "^13.0.1",
+    "prettier": "^2.7.0",
+    "typescript": "^4.7.4"
+  }
+}
