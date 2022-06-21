@@ -1,7 +1,7 @@
 import path from 'path';
 import { getJingeTemplateRuleWithAlias, JingeComponentRule, JingeTemplateRule } from 'jinge-compiler';
 
-export const JingeI18NTemplateLoader = path.resolve(__dirname, './webpack/template_loader.js');
+export const JingeI18NTemplateLoader = path.resolve(__dirname, './webpack/template-loader.js');
 
 export const JingeI18NComponentRule = {
   test: JingeComponentRule.test,

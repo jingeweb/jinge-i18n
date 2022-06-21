@@ -3,11 +3,14 @@ import { watchForComponent, getLocale } from '../core/service';
 
 type TFn = (ctx?: unknown) => string;
 export class TComponent extends Component {
-  #p: boolean;
-  d: Record<string, string | TFn>;
+  p: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  t(locale: string): string | TFn {
+    throw new Error('abstract method');
+  }
   constructor(attrs: Attributes, hasParams = false) {
     super(attrs);
-    this.#p = hasParams;
+    this.p = hasParams;
     attrs[$$].__watch('**', () => {
       this.__updateIfNeed();
     });
@@ -15,19 +18,19 @@ export class TComponent extends Component {
       this.__updateIfNeed();
     });
   }
-  #r() {
-    const txtOrFn = this.d[getLocale()];
-    if (this.#p) {
+  r() {
+    const txtOrFn = this.t(getLocale());
+    if (this.p) {
       return (txtOrFn as TFn)(this[__].passedAttrs);
     } else {
       return txtOrFn as string;
     }
   }
   __render(): Node[] {
-    return [textRenderFn(this, this.#r())];
+    return [textRenderFn(this, this.r())];
   }
   __update(): void {
-    setText(this[__].rootNodes[0] as HTMLElement, this.#r());
+    setText(this[__].rootNodes[0] as HTMLElement, this.r());
   }
 }
 
