@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
-import { parse as parseHtml, INode, SyntaxKind } from '@jingeweb/html5parser';
+import { parse as parseHtml, INode, SyntaxKind, IText, ITag, IAttribute } from '@jingeweb/html5parser';
 import yargs from 'yargs';
 // eslint-disable-next-line import/no-unresolved
 import { stringify as csvStringify } from 'csv-stringify/sync';
@@ -27,6 +27,37 @@ function glob(dir: string) {
 
 function needTranslate(cnt: string) {
   return /[\u4e00-\u9fa5]/.test(cnt);
+}
+export function walkNode(
+  node: INode,
+  source: string,
+  cb: (content: string, type: 'text' | 'attr' | 'tag', node: IText | ITag | IAttribute) => void,
+) {
+  if (node.type === SyntaxKind.Text) {
+    const text = node.value.trim();
+    if (needTranslate(text)) {
+      // pushRow(text);
+      cb(text, 'text', node);
+    }
+  } else if (node.name !== '!--') {
+    node.attributes.forEach((iattr) => {
+      const v = iattr.value?.value.trim();
+      if (!v || !needTranslate(v)) return;
+      // pushRow(v);
+      cb(v, 'attr', iattr);
+    });
+    if (node.rawName === '_t') {
+      let text = source.substring(node.open.end, node.close.start).trim();
+      if (!needTranslate(text)) {
+        return;
+      }
+      if (text.indexOf('\n') >= 0) text = text.replace(/\n/g, '');
+      // pushRow(text);
+      cb(text, 'tag', node);
+    } else {
+      node.body.forEach((cn) => walkNode(cn, source, cb));
+    }
+  }
 }
 
 interface SourceData {
@@ -54,31 +85,8 @@ function extractTemplate(file: string, data: SourceData) {
       map.set(text, true);
     }
   }
-  function walkNode(node: INode) {
-    if (node.type === SyntaxKind.Text) {
-      const text = node.value.trim();
-      if (needTranslate(text)) {
-        pushRow(text);
-      }
-    } else if (node.name !== '!--') {
-      node.attributes.forEach((iattr) => {
-        const v = iattr.value?.value.trim();
-        if (!v || !needTranslate(v)) return;
-        pushRow(v);
-      });
-      if (node.rawName === '_t') {
-        let text = cnt.substring(node.open.end, node.close.start).trim();
-        if (!needTranslate(text)) {
-          return;
-        }
-        if (text.indexOf('\n') >= 0) text = text.replace(/\n/g, '');
-        pushRow(text);
-      } else {
-        node.body.forEach((cn) => walkNode(cn));
-      }
-    }
-  }
-  inodes.forEach((node) => walkNode(node));
+
+  inodes.forEach((node) => walkNode(node, cnt, (text) => pushRow(text)));
   console.log(`  ${rf}, ${data.rows.length - pn} rows`);
 }
 
