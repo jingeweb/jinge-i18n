@@ -1,12 +1,11 @@
 import path from 'path';
-import { INode, ITag, parse, SyntaxKind } from '@jingeweb/html5parser';
+import { INode, ITag, IAttribute, parse, SyntaxKind } from '@jingeweb/html5parser';
 import { util } from 'jinge-compiler';
-import { needTranslate, TranslateDir } from '../util';
+import { needTranslate, TranslateDictDir } from '../util';
+import { MetaJSON } from '../generate/common';
 import { getMeta } from './meta';
 
-const { getReplaceResult, sortedInsert, IMPORT_POSTFIX } = util;
-
-const I18N_POSTFIX = '_i18n' + IMPORT_POSTFIX;
+const { getReplaceResult, sortedInsert } = util;
 
 function logErr(
   msg: string,
@@ -17,72 +16,141 @@ function logErr(
   console.error(`[${type}] ${msg}\n --> ${file}, Ln ${loc.line}, Col ${loc.column}`);
 }
 
-const DICT_FILE = path.join(TranslateDir, 'dict.js');
+interface TransformStore {
+  importComponents: Map<string, Set<string>>;
+  attrVMInc: number;
+}
+async function handleAttrs(
+  node: ITag,
+  meta: MetaJSON,
+  sourceFile: string,
+  store: TransformStore,
+  replaces: util.ReplaceItem[],
+) {
+  const attrHashes: { hash: string; node: IAttribute }[] = [];
+  node.attributes.forEach((iattr) => {
+    const originalText = iattr.value?.value.trim();
+    if (!originalText || !needTranslate(originalText)) return;
+    const info = meta.dictionary[originalText];
+    if (!info) {
+      logErr(
+        `attribute value not found, you may need re-run jinge-i18n extract\n --> ${JSON.stringify(originalText)}`,
+        sourceFile,
+        iattr.value.loc.start,
+      );
+      return;
+    }
+    attrHashes.push({ hash: info.hash, node: iattr });
+  });
+  if (attrHashes.length === 0) {
+    return;
+  }
+  attrHashes.sort((ha, hb) => {
+    return ha.hash === hb.hash ? 0 : ha.hash > hb.hash ? 1 : -1;
+  });
 
-export async function transformHtml(source: string, file: string) {
+  const hash = attrHashes.map((h) => h.hash).join('_');
+  const vmCtx = `ctx_${hash}_${store.attrVMInc++}`;
+  attrHashes.forEach((h, i) => {
+    sortedInsert(replaces, {
+      sn: h.node.name.start,
+      se: h.node.name.start,
+      code: ':',
+    });
+    sortedInsert(replaces, {
+      sn: h.node.value.start + 1, // +1 to include quota char: "
+      se: h.node.value.end - 1,
+      code: `${vmCtx}[${i}]`,
+    });
+  });
+  const comp = meta.attribute[sourceFile]?.[hash];
+  if (!comp) {
+    logErr(
+      `attribute combination not found in dictionary, you may need re-run jinge-i18n generate`,
+      sourceFile,
+      node.loc.start,
+    );
+    return;
+  }
+  const importfile = `${hash}.js`;
+  let imps = store.importComponents.get(importfile);
+  if (!imps) store.importComponents.set(importfile, (imps = new Set()));
+  imps.add(comp.name);
+  const params = comp.params
+    ? Object.keys(comp.params)
+        .map((code) => ` :p${comp.params[code]}="${code}"`)
+        .join('')
+    : '';
+  sortedInsert(replaces, {
+    sn: node.start,
+    se: node.start,
+    code: `<${comp.name}${params} vm:c="${vmCtx}">`,
+  });
+  sortedInsert(replaces, {
+    sn: node.end,
+    se: node.end,
+    code: `</${comp.name}>`,
+  });
+}
+export async function transformHtml(source: string, sourceFile: string) {
   const meta = getMeta();
   const inodes = parse(source);
   const replaces: util.ReplaceItem[] = [];
-  let commentNode: ITag;
-  const importComponents: Set<string> = new Set();
+  const store: TransformStore = {
+    importComponents: new Map(),
+    attrVMInc: 0,
+  };
   const walkNode = (node: INode) => {
     if (node.type === SyntaxKind.Text) {
       const text = node.value.trim();
-      if (needTranslate(text)) {
-        // dicts.zh_cn.
-        const info = meta[text]?.[file];
-        if (!info) {
-          logErr(
-            `text not found in dictionary, you may need re-run jinge-i18n extract\n --> ${JSON.stringify(text)}`,
-            file,
-            node.loc.start,
-          );
-          return;
-        }
-        importComponents.add(info.component);
-        sortedInsert(replaces, {
-          sn: node.start,
-          se: node.end,
-          code: `<${info.component}${I18N_POSTFIX}${
-            info.params ? info.params.map((p) => ` p${p.pi}="${p.expr}"`).join('') : ''
-          } />`,
-        });
+      if (!text || !needTranslate(text)) return;
+      const info = meta.dictionary[text];
+      const comp = info?.compoents?.[sourceFile];
+      if (!comp) {
+        logErr(
+          `text not found in dictionary, you may need re-run jinge-i18n extract\n --> ${JSON.stringify(text)}`,
+          sourceFile,
+          node.loc.start,
+        );
+        return;
       }
-    } else if (node.name !== '!--') {
-      node.attributes.forEach((iattr) => {
-        const v = iattr.value?.value.trim();
-        if (!v || !needTranslate(v)) return;
-        // pushRow(v);
-        throw 'todo';
+      const importfile = `${info.hash}.js`;
+      let imps = store.importComponents.get(importfile);
+      if (!imps) store.importComponents.set(importfile, (imps = new Set()));
+      imps.add(comp.name);
+      const params = comp.params
+        ? Object.keys(comp.params)
+            .map((code) => ` :p${comp.params[code]}="${code}"`)
+            .join('')
+        : '';
+      sortedInsert(replaces, {
+        sn: node.start,
+        se: node.end,
+        code: `<${comp.name}${params} />`,
       });
-      if (node.rawName === '_t') {
-        let text = source.substring(node.open.end, node.close.start).trim();
-        if (!needTranslate(text)) {
-          return;
-        }
-        if (text.indexOf('\n') >= 0) text = text.replace(/\n/g, '');
-        // pushRow(text);
-        throw 'todo';
+    } else if (node.name !== '!--') {
+      if (node.rawName === 'switch-locale' || node.rawName === 'SwitchLocaleComponent') {
+        // 忽略 <switch-locale></switch-locale> 内部包裹的内容
+        return;
       } else {
+        if (node.attributes.length > 0) {
+          handleAttrs(node, meta, sourceFile, store, replaces);
+        }
+        // loop walk children
         node.body?.forEach((cn) => walkNode(cn));
       }
-    } else {
-      if (!commentNode) commentNode = node;
     }
   };
   inodes.forEach((node) => walkNode(node));
 
   if (!replaces.length) return source;
 
-  const imp = `import { ${Array.from(importComponents)
-    .map((c) => `${c} as ${c}${I18N_POSTFIX}`)
-    .join(', ')} } from '${DICT_FILE}';`;
+  let impCode = '';
+  store.importComponents.forEach((imps, importFile) => {
+    impCode += `import { ${Array.from(imps).join(', ')} } from '${path.join(TranslateDictDir, importFile)}';`;
+  });
 
-  if (!commentNode) {
-    sortedInsert(replaces, { sn: 0, se: 0, code: `<!-- ${imp} -->` });
-  } else {
-    sortedInsert(replaces, { sn: commentNode.open.end, se: commentNode.open.end, code: imp });
-  }
+  sortedInsert(replaces, { sn: 0, se: 0, code: `<!-- ${impCode} -->\n` });
 
   const code = getReplaceResult(replaces, source);
   // console.log(code);

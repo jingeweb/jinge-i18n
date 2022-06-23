@@ -1,19 +1,23 @@
 import { readFileSync } from 'fs';
 import path from 'path';
-import { MetaJSON } from '../generate';
-import { TranslateDir } from '../util';
+import { MetaJSON } from '../generate/common';
+import { TranslateMetaDir } from '../util';
 
 let meta: MetaJSON;
 
 export function getMeta() {
   if (meta) return meta;
-  const metafile = path.join(TranslateDir, 'meta.json');
-  console.log(metafile);
-  try {
-    meta = JSON.parse(readFileSync(metafile, 'utf-8')) as typeof meta;
-    return meta;
-  } catch (ex) {
-    console.error('meta.json not found, you may need run jinge-i18n generate first');
-    process.exit(-1);
-  }
+  meta = {} as unknown as MetaJSON;
+  ['attribute', 'dictionary'].forEach((name) => {
+    const metafile = path.join(TranslateMetaDir, name + '.json');
+    // console.log(metafile);
+    try {
+      meta[name as unknown as keyof MetaJSON] = JSON.parse(readFileSync(metafile, 'utf-8'));
+      return meta;
+    } catch (ex) {
+      console.error(`failed load "meta/${name}.json", you may need re-run jinge-i18n generate`);
+      process.exit(-1);
+    }
+  });
+  return meta;
 }

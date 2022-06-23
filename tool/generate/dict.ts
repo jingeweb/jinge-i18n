@@ -23,6 +23,8 @@ export interface Dict {
   rows: CSVRecord[];
 }
 
+export type DictStore = ReturnType<typeof loadDict>;
+
 export function loadDict() {
   const translateDir = path.join(process.cwd(), 'translate');
   const files = fs.readdirSync(translateDir).filter((f) => f.endsWith('.csv'));

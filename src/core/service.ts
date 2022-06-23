@@ -34,7 +34,10 @@ export function watchForComponent(component: Component, fn: LocaleListener, imme
 export const w = watch;
 export const cw = watchForComponent;
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function t(message: string) {
-  throw new Error('DONT USE COMPILER FUNCTION');
+type TFn = (ctx?: unknown) => string;
+/**
+ * 用于编译器自动转换的代码，请勿手工引用该函数。
+ */
+export function t(fn: (locale: string) => TFn, ctx: unknown) {
+  return fn(currentLocale)(ctx);
 }
