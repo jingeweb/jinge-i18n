@@ -1,3 +1,4 @@
+import { TemplateParser } from 'jinge-compiler';
 import { MetaStore, OriginalTextInfo, TranslateTextInfo } from './common';
 import { DictStore } from './dict';
 import { SimpleHasher } from './hash';
@@ -65,11 +66,12 @@ export function getTranslateTextInfo(
   };
 }
 
-export function expr2code(expr: { code: string } | undefined, originalText: string) {
+function expr2code(expr: { code: string } | undefined, originalText: string) {
   return `(${expr ? 'attrs' : ''}) => ${expr ? `\`${expr.code}\`` : JSON.stringify(originalText)}`;
 }
 
 export function registerText(
+  type: 'text' | 'attr' | 'literal',
   originalText: string,
   sourceFile: string,
   meta: MetaStore,
@@ -79,7 +81,11 @@ export function registerText(
 ) {
   const tmap = dict.tree.get(originalText)?.get(sourceFile);
   if (!tmap) {
-    logErr(`text not found in ${meta.defaultLocale}.csv, you may need re-run jinge-i18n extract`, sourceFile, loc);
+    logErr(
+      `text not found in ${meta.defaultLocale}.csv, you may need re-run jinge-i18n extract\n  --> ${originalText}`,
+      sourceFile,
+      loc,
+    );
     return null;
   }
   const targetLocales = dict.locales;
@@ -92,17 +98,44 @@ export function registerText(
   const originalTextInfo = getOriginalTextInfo(meta.textRegisterMap, originalText, meta.hasher, attrsParams);
   const defaultLocaleId = meta.defaultLocale.replace('_', '').toUpperCase();
   if (originalTextInfo.isNew) {
-    originalTextInfo.info.outputCodes.push(
-      `export const ${defaultLocaleId} = ${expr2code(originalTextInfo.info.expr, originalText)};`,
-    );
+    const expr = originalTextInfo.info.expr;
+    let code: string;
+    if (type === 'text' && originalText.indexOf('<') >= 0) {
+      const { jingeImports, aliasImportsCodes } = (originalTextInfo.info.renderFn = {
+        jingeImports: new Set(),
+        aliasImportsCodes: new Set(),
+      });
+      const result = TemplateParser.parse2(expr?.code || originalText, {
+        resourcePath: originalText,
+        addDebugName: false,
+        emitErrorFn: (err) => console.error(err),
+      });
+      result.jingeImports.forEach((imp) => {
+        if (!jingeImports.has(imp)) {
+          originalTextInfo.info.outputCodes.unshift(`import { ${imp} } from 'jinge';`);
+          jingeImports.add(imp);
+        }
+      });
+      if (result.aliasImportsCode && !aliasImportsCodes.has(result.aliasImportsCode)) {
+        originalTextInfo.info.outputCodes.unshift(result.aliasImportsCode);
+        aliasImportsCodes.add(result.aliasImportsCode);
+      }
+      code = result.renderFnCode;
+    } else {
+      code = expr2code(expr, originalText);
+    }
+    originalTextInfo.info.outputCodes.push(`export const ${defaultLocaleId} = ${code};`);
   }
   const record = meta.outputJson.dictionary[originalText];
   if (!record) {
     meta.outputJson.dictionary[originalText] = {
+      type: originalTextInfo.info.renderFn ? 'R' : 'T',
       hash: originalTextInfo.info.hash,
     };
   }
-  const targetLocalesIds = targetLocales.map((locale) => {
+
+  const targetLocalesIds: string[] = [];
+  for (const locale of targetLocales) {
     const translateText = tmap.get(locale);
     let idxMap = originalTextInfo.info.translateIndexMap[locale];
     if (!idxMap) idxMap = originalTextInfo.info.translateIndexMap[locale] = new Map();
@@ -115,12 +148,34 @@ export function registerText(
     );
     const id = locale.replace('_', '').toUpperCase() + (translateTextInfo.info.index || '').toString();
     if (translateTextInfo.isNew) {
-      originalTextInfo.info.outputCodes.push(
-        `export const ${id} = ${expr2code(translateTextInfo.info.expr, translateText)};`,
-      );
+      const expr = translateTextInfo.info.expr;
+      let code: string;
+      if (originalTextInfo.info.renderFn) {
+        const result = TemplateParser.parse2(expr?.code || translateText, {
+          resourcePath: translateText,
+          addDebugName: false,
+          emitErrorFn: (err) => console.error(err),
+        });
+        const { jingeImports, aliasImportsCodes } = originalTextInfo.info.renderFn;
+        result.jingeImports.forEach((imp) => {
+          if (!jingeImports.has(imp)) {
+            originalTextInfo.info.outputCodes.unshift(`import { ${imp} } from 'jinge';`);
+            jingeImports.add(imp);
+          }
+        });
+        if (result.aliasImportsCode && !aliasImportsCodes.has(result.aliasImportsCode)) {
+          originalTextInfo.info.outputCodes.unshift(result.aliasImportsCode);
+          aliasImportsCodes.add(result.aliasImportsCode);
+        }
+        code = result.renderFnCode;
+      } else {
+        code = expr2code(expr, translateText);
+      }
+      originalTextInfo.info.outputCodes.push(`export const ${id} = ${code};`);
     }
-    return id;
-  });
+    targetLocalesIds.push(id);
+  }
+
   const dictionaryFnId = defaultLocaleId + '_' + targetLocalesIds.join('_');
   if (!originalTextInfo.info.exportSymbolMap.has(dictionaryFnId)) {
     originalTextInfo.info.exportSymbolMap.set(dictionaryFnId, true);

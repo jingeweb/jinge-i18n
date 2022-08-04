@@ -8,7 +8,7 @@ import { MetaCompnentInfo, MetaStore } from './common';
 
 function handleText(originalText: string, sourceFile: string, meta: MetaStore, dict: DictStore, loc: Position) {
   if (!originalText || !needTranslate(originalText)) return;
-  const { originalTextInfo, dictionaryFnId } = registerText(originalText, sourceFile, meta, dict, loc) || {};
+  const { originalTextInfo, dictionaryFnId } = registerText('literal', originalText, sourceFile, meta, dict, loc) || {};
   if (!originalTextInfo) return;
   const componentName = `F${originalTextInfo.info.hash}_${dictionaryFnId}`;
   if (!originalTextInfo.info.exportSymbolMap.has(componentName)) {

@@ -7,6 +7,7 @@ export function extractTsFile(content: string, sourceFile: string, data: SourceD
     target: 'es2020',
     format: 'esm',
     loader: 'ts',
+    charset: 'utf8',
     sourcemap: false,
   });
   extractJsFile(code, sourceFile, data);

@@ -44,11 +44,9 @@ async function transformFile(file) {
   if (warnings?.length) console.error(warnings);
   if (!code) return; // ignore empty file
   if (file.startsWith(COMP_DIR)) {
-    code = (
-      await ComponentParser.parse(code, null, {
-        resourcePath: file,
-      })
-    ).code;
+    code = ComponentParser.parse(code, null, {
+      resourcePath: file,
+    }).code;
   }
   const distfile = path.join(isSrc ? DIST_LIB_DIR : DIST_COMPILER_DIR, rf.replace(/\.ts$/, '.js'));
   execSync(`mkdir -p ${path.dirname(distfile)}`);

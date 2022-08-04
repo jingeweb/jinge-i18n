@@ -1,5 +1,6 @@
 import { Node, parse as _parseexpr } from 'acorn';
 import { Expression, TemplateLiteral } from 'estree';
+import { needTranslate } from '../util';
 import { logErr, Position } from './helper';
 
 export function parseOriginalTextExpr(text: string, globalParams?: Map<string, number>) {
@@ -57,10 +58,23 @@ export function parseTranslateTextExpr(
   if (node.expressions.length === 0) {
     return null;
   }
+
   const pis = node.expressions.map((en: Expression & Node) => {
     const code = expr.substring(en.start, en.end).trim();
-    if (!(code in originalParams)) {
-      logErr(`parameters of ${JSON.stringify(text)} does not match with original text.`, sourceFile, loc, 'warning');
+    if (needTranslate(code)) {
+      logErr(
+        '[warning] expression need translate is not support.\n  --> ' + JSON.stringify(code),
+        sourceFile,
+        loc,
+        'warning',
+      );
+    } else if (!(code in originalParams)) {
+      logErr(
+        `parameters of expression does not match with original text.\n  --> ${JSON.stringify(text)}`,
+        sourceFile,
+        loc,
+        'warning',
+      );
       return -1;
     }
     return originalParams[code];

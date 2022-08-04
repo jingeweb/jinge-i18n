@@ -1,9 +1,10 @@
 import path from 'path';
 import { parse as parseHtml, INode, SyntaxKind } from '@jingeweb/html5parser';
-import { needTranslate, CWD } from '../util';
+import { needTranslate, InlineTags, CWD } from '../util';
 import { SourceData } from './common';
+import { isI18nConcatNode } from './helper';
 
-export function extractHtmlFile(content: string, sourceFile: string, data: SourceData) {
+export function extractHtmlFile(content: string, sourceFile: string, data: SourceData, inlineTags: InlineTags) {
   const rf = path.relative(CWD, sourceFile);
   const inodes = parseHtml(content);
   const pn = data.rows.length;
@@ -17,12 +18,70 @@ export function extractHtmlFile(content: string, sourceFile: string, data: Sourc
     }
   };
 
-  const walkNode = (node: INode) => {
-    if (node.type === SyntaxKind.Text) {
-      const text = node.value.trim();
-      if (!text || !needTranslate(text)) return;
-      pushRow(text);
-    } else if (node.name !== '!--') {
+  function handleConcatNodes(nodes: INode[]) {
+    let text;
+    if (nodes.length === 1 && nodes[0].type === SyntaxKind.Tag) {
+      const n = nodes[0];
+      text = content.substring(n.open.end, n.close.start).trim();
+    } else {
+      text = nodes
+        .map((node) => {
+          return content.substring(node.start, node.end).trim();
+        })
+        .join('');
+    }
+
+    if (!text || !needTranslate(text)) return;
+    pushRow(text);
+  }
+
+  function walkNodes(nodes: INode[]) {
+    /** 连续的 pure node */
+    const pns: INode[] = [];
+
+    nodes.forEach((node, idx) => {
+      if (node.type === SyntaxKind.Tag && node.name === '!--') {
+        if (idx === nodes.length - 1 && pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        return; // skip comment
+      }
+      if (node.type === SyntaxKind.Text) {
+        if (!/[^\s]/.test(node.value)) {
+          if (idx === nodes.length - 1 && pns.length > 0) {
+            handleConcatNodes(pns);
+            pns.length = 0;
+          }
+          return; // skip whole whitespace
+        }
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        return;
+      }
+
+      if (isI18nConcatNode(node, inlineTags)) {
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        return; // pure node 不需要进行后续的处理。
+      } else {
+        if (pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+      }
+
+      if (node.rawName === 'switch-locale' || node.rawName === 'SwitchLocaleComponent') {
+        // 忽略 <switch-locale></switch-locale> 内部包裹的内容
+        return;
+      }
+
       node.attributes.forEach((iattr) => {
         const v = iattr.value?.value.trim();
         if (!v || !needTranslate(v)) return;
@@ -38,14 +97,12 @@ export function extractHtmlFile(content: string, sourceFile: string, data: Sourc
         }
         pushRow(v);
       });
-      if (node.rawName === 'switch-locale' || node.rawName === 'SwitchLocaleComponent') {
-        // 忽略 <switch-locale></switch-locale> 内部包裹的内容
-        return;
-      } else {
-        node.body?.forEach((cn) => walkNode(cn));
+      if (node.body?.length) {
+        walkNodes(node.body);
       }
-    }
-  };
-  inodes.forEach((node) => walkNode(node));
+    });
+  }
+  walkNodes(inodes);
+
   console.log(`  ${rf}, ${data.rows.length - pn} rows`);
 }

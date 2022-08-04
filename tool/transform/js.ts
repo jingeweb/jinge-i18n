@@ -53,7 +53,7 @@ function handleText(text: string, sourceFile: string, store: TransformStore, met
     code: `${comp.name}(${params})`,
   });
 }
-export async function transformJs(source: string, sourceFile: string) {
+export function transformJs(source: string, sourceFile: string) {
   const meta = getMeta();
   const comments: Comment[] = [];
   const tree = parse(source, {

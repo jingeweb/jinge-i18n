@@ -1,17 +1,20 @@
 import { parse as parseHtml, INode, ITag, SyntaxKind } from '@jingeweb/html5parser';
 import { needTranslate } from '../util';
+import { isI18nConcatNode } from '../extract/helper';
 import { DictStore } from './dict';
 import { Position, registerText } from './helper';
 import { MetaCompnentInfo, MetaStore } from './common';
 
 function handleText(originalText: string, sourceFile: string, meta: MetaStore, dict: DictStore, loc: Position) {
-  const { originalTextInfo, dictionaryFnId } = registerText(originalText, sourceFile, meta, dict, loc) || {};
+  const { originalTextInfo, dictionaryFnId } = registerText('text', originalText, sourceFile, meta, dict, loc) || {};
   if (!originalTextInfo) return;
+  const renderFn = originalTextInfo.info.renderFn;
+
   const componentName = `T${originalTextInfo.info.hash}_${dictionaryFnId}`;
   if (!originalTextInfo.info.exportSymbolMap.has(componentName)) {
     originalTextInfo.info.exportSymbolMap.set(componentName, true);
     originalTextInfo.info.outputCodes.push(
-      `export class ${componentName} extends TComponent {\n  static d = ${dictionaryFnId};\n}`,
+      `export class ${componentName} extends ${renderFn ? 'R' : 'T'}Component {\n  static d = ${dictionaryFnId};\n}`,
     );
   }
 
@@ -34,20 +37,20 @@ function handleText(originalText: string, sourceFile: string, meta: MetaStore, d
 function handleAttrs(node: ITag, sourceFile: string, meta: MetaStore, dict: DictStore) {
   const infos: ReturnType<typeof registerText>[] = [];
   const attrsParams: Map<string, number> = new Map();
-  node.attributes.forEach((iattr) => {
+  for (const iattr of node.attributes) {
     const originalText = iattr.value?.value.trim();
-    if (!originalText || !needTranslate(originalText)) return;
+    if (!originalText || !needTranslate(originalText)) continue;
     if (iattr.name.value.includes(':')) {
       // 当前不支持 :a="name + '你好'" 这种表达式属性的多语言抽取，可改为 a="${name}你好"。
       console.error(
         `[warning] expression attribute won\'t be extract, please use string attribute instead.\n  --> ${sourceFile}, Ln ${iattr.value.loc.start.line}, Col ${iattr.value.loc.start.column}`,
       );
-      return;
+      continue;
     }
-    const info = registerText(originalText, sourceFile, meta, dict, iattr.value.loc.start, attrsParams);
-    if (!info) return;
+    const info = registerText('attr', originalText, sourceFile, meta, dict, iattr.value.loc.start, attrsParams);
+    if (!info) continue;
     infos.push(info);
-  });
+  }
   if (!infos.length) {
     return;
   }
@@ -76,28 +79,27 @@ function handleAttrs(node: ITag, sourceFile: string, meta: MetaStore, dict: Dict
   }
 
   const componentName = `A${attrHashes}_${infos.map((info) => info.dictionaryFnId).join('_')}`;
-  if (attrReg.exportSymbolSet.has(componentName)) {
-    return;
+  if (!attrReg.exportSymbolSet.has(componentName)) {
+    attrReg.exportSymbolSet.add(componentName);
+
+    const dCode: string[] = [];
+
+    infos.forEach((info, i) => {
+      const attrV = attrReg.attrVList[i];
+      attrV.importSymbols.add(info.dictionaryFnId);
+      // 如果只有一个，最终会被写入 handleText 生成的文件，文件里已经有依赖的符号，不需要使用 import 进来的添加 hash 后缀的符号。
+      if (infos.length === 1) {
+        dCode.push(info.dictionaryFnId);
+      } else {
+        dCode.push(`${info.dictionaryFnId}_${attrV.hash}`);
+      }
+    });
+
+    const code = `export class ${componentName} extends AComponent {
+    static d = [${dCode.join(', ')}];
+  }`;
+    attrReg.componentCodes.push(code);
   }
-  attrReg.exportSymbolSet.add(componentName);
-
-  const dCode: string[] = [];
-
-  infos.forEach((info, i) => {
-    const attrV = attrReg.attrVList[i];
-    attrV.importSymbols.add(info.dictionaryFnId);
-    // 如果只有一个，最终会被写入 handleText 生成的文件，文件里已经有依赖的符号，不需要使用 import 进来的添加 hash 后缀的符号。
-    if (infos.length === 1) {
-      dCode.push(info.dictionaryFnId);
-    } else {
-      dCode.push(`${info.dictionaryFnId}_${attrV.hash}`);
-    }
-  });
-
-  const code = `export class ${componentName} extends AComponent {
-  static d = [${dCode.join(', ')}];
-}`;
-  attrReg.componentCodes.push(code);
 
   let record = meta.outputJson.attribute[sourceFile];
   if (!record) meta.outputJson.attribute[sourceFile] = record = {};
@@ -115,20 +117,78 @@ function handleAttrs(node: ITag, sourceFile: string, meta: MetaStore, dict: Dict
 export function handleHtml(source: string, sourceFile: string, dict: DictStore, meta: MetaStore) {
   const inodes = parseHtml(source);
 
-  const walkNode = (node: INode) => {
-    if (node.type === SyntaxKind.Text) {
-      const originalText = node.value.trim();
-      if (!originalText || !needTranslate(originalText)) return;
-      handleText(originalText, sourceFile, meta, dict, node.loc.start);
-    } else if (node.name !== '!--') {
+  function handleConcatNodes(nodes: INode[]) {
+    let text;
+    if (nodes.length === 1 && nodes[0].type === SyntaxKind.Tag) {
+      const n = nodes[0];
+      text = source.substring(n.open.end, n.close.start).trim();
+    } else {
+      text = nodes
+        .map((node) => {
+          return source.substring(node.start, node.end).trim();
+        })
+        .join('');
+    }
+
+    if (!text || !needTranslate(text)) return;
+    handleText(text, sourceFile, meta, dict, nodes[0].loc.start);
+  }
+
+  function walkNodes(nodes: INode[]) {
+    /** 连续的 pure node */
+    const pns: INode[] = [];
+
+    for (let idx = 0; idx < nodes.length; idx++) {
+      // if (sourceFile.endsWith('app.c.html') && idx === 15) debugger;
+
+      const node = nodes[idx];
+      if (node.type === SyntaxKind.Tag && node.name === '!--') {
+        if (idx === nodes.length - 1 && pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue; // skip comment
+      }
+      if (node.type === SyntaxKind.Text) {
+        if (!/[^\s]/.test(node.value)) {
+          if (idx === nodes.length - 1 && pns.length > 0) {
+            handleConcatNodes(pns);
+            pns.length = 0;
+          }
+          continue; // skip whole whitespace
+        }
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue;
+      }
+      if (isI18nConcatNode(node, meta.inlineTags)) {
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue; // pure node 不需要进行后续的处理。
+      } else {
+        if (pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+      }
+
       if (node.rawName === 'switch-locale' || node.rawName === 'SwitchLocaleComponent') {
         // 忽略 <switch-locale></switch-locale> 内部包裹的内容
-        return;
-      } else {
-        handleAttrs(node, sourceFile, meta, dict);
-        node.body?.forEach((cn) => walkNode(cn));
+        continue;
+      }
+
+      handleAttrs(node, sourceFile, meta, dict);
+      if (node.body?.length) {
+        walkNodes(node.body);
       }
     }
-  };
-  inodes.forEach((node) => walkNode(node));
+  }
+
+  walkNodes(inodes);
 }

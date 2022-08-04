@@ -1,8 +1,9 @@
 import path from 'path';
 import { INode, ITag, IAttribute, parse, SyntaxKind } from '@jingeweb/html5parser';
 import { util } from 'jinge-compiler';
-import { needTranslate, TranslateDictDir } from '../util';
+import { InlineTags, needTranslate, TranslateDictDir } from '../util';
 import { MetaJSON } from '../generate/common';
+import { isI18nConcatNode } from '../extract/helper';
 import { getMeta } from './meta';
 
 const { getReplaceResult, sortedInsert } = util;
@@ -92,7 +93,7 @@ async function handleAttrs(
     code: `</${comp.name}>`,
   });
 }
-export async function transformHtml(source: string, sourceFile: string) {
+export function transformHtml(source: string, sourceFile: string, inlineTags: InlineTags) {
   const meta = getMeta();
   const inodes = parse(source);
   const replaces: util.ReplaceItem[] = [];
@@ -100,48 +101,107 @@ export async function transformHtml(source: string, sourceFile: string) {
     importComponents: new Map(),
     attrVMInc: 0,
   };
-  const walkNode = (node: INode) => {
-    if (node.type === SyntaxKind.Text) {
-      const text = node.value.trim();
-      if (!text || !needTranslate(text)) return;
-      const info = meta.dictionary[text];
-      const comp = info?.compoents?.[sourceFile];
-      if (!comp) {
-        logErr(
-          `text not found in dictionary, you may need re-run jinge-i18n extract\n --> ${JSON.stringify(text)}`,
-          sourceFile,
-          node.loc.start,
-        );
-        return;
+
+  function handleConcatNodes(nodes: INode[]) {
+    let text;
+    if (nodes.length === 1 && nodes[0].type === SyntaxKind.Tag) {
+      const n = nodes[0];
+      text = source.substring(n.open.end, n.close.start).trim();
+    } else {
+      text = nodes
+        .map((node) => {
+          return source.substring(node.start, node.end).trim();
+        })
+        .join('');
+    }
+
+    if (!text || !needTranslate(text)) {
+      return;
+    }
+
+    const info = meta.dictionary[text];
+    const comp = info?.compoents?.[sourceFile];
+    if (!comp) {
+      logErr(
+        `text not found in dictionary, you may need re-run jinge-i18n extract\n --> ${JSON.stringify(text)}`,
+        sourceFile,
+        nodes[0].loc.start,
+      );
+      return;
+    }
+    const importfile = `${info.hash}.js`;
+    let imps = store.importComponents.get(importfile);
+    if (!imps) store.importComponents.set(importfile, (imps = new Set()));
+    imps.add(comp.name);
+    const params = comp.params
+      ? Object.keys(comp.params)
+          .map((code) => ` :p${comp.params[code]}="${code}"`)
+          .join('')
+      : '';
+    sortedInsert(replaces, {
+      sn: nodes[0].start,
+      se: nodes[nodes.length - 1].end,
+      code: `<${comp.name}${params} />`,
+    });
+  }
+
+  function walkNodes(nodes: INode[]) {
+    /** 连续的 pure node */
+    const pns: INode[] = [];
+
+    for (let idx = 0; idx < nodes.length; idx++) {
+      const node = nodes[idx];
+      if (node.type === SyntaxKind.Tag && node.name === '!--') {
+        if (idx === nodes.length - 1 && pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue; // skip comment
       }
-      const importfile = `${info.hash}.js`;
-      let imps = store.importComponents.get(importfile);
-      if (!imps) store.importComponents.set(importfile, (imps = new Set()));
-      imps.add(comp.name);
-      const params = comp.params
-        ? Object.keys(comp.params)
-            .map((code) => ` :p${comp.params[code]}="${code}"`)
-            .join('')
-        : '';
-      sortedInsert(replaces, {
-        sn: node.start,
-        se: node.end,
-        code: `<${comp.name}${params} />`,
-      });
-    } else if (node.name !== '!--') {
+      if (node.type === SyntaxKind.Text) {
+        if (!/[^\s]/.test(node.value)) {
+          if (idx === nodes.length - 1 && pns.length > 0) {
+            handleConcatNodes(pns);
+            pns.length = 0;
+          }
+          continue; // skip whole whitespace
+        }
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue;
+      }
+      if (isI18nConcatNode(node, inlineTags)) {
+        pns.push(node);
+        if (idx === nodes.length - 1) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+        continue; // pure node 不需要进行后续的处理。
+      } else {
+        if (pns.length > 0) {
+          handleConcatNodes(pns);
+          pns.length = 0;
+        }
+      }
+
       if (node.rawName === 'switch-locale' || node.rawName === 'SwitchLocaleComponent') {
         // 忽略 <switch-locale></switch-locale> 内部包裹的内容
-        return;
-      } else {
-        if (node.attributes.length > 0) {
-          handleAttrs(node, meta, sourceFile, store, replaces);
-        }
-        // loop walk children
-        node.body?.forEach((cn) => walkNode(cn));
+        continue;
+      }
+
+      if (node.attributes.length) {
+        handleAttrs(node, meta, sourceFile, store, replaces);
+      }
+      if (node.body?.length) {
+        walkNodes(node.body);
       }
     }
-  };
-  inodes.forEach((node) => walkNode(node));
+  }
+
+  walkNodes(inodes);
 
   if (!replaces.length) return source;
 
@@ -153,6 +213,6 @@ export async function transformHtml(source: string, sourceFile: string) {
   sortedInsert(replaces, { sn: 0, se: 0, code: `<!-- ${impCode} -->\n` });
 
   const code = getReplaceResult(replaces, source);
-  // console.log(code);
+
   return code;
 }

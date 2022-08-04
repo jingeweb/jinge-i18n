@@ -8,6 +8,7 @@ export function handleTs(source: string, sourceFile: string, dict: DictStore, me
     target: 'es2020',
     format: 'esm',
     loader: 'ts',
+    charset: 'utf8',
     sourcemap: false,
   });
   handleJs(code, sourceFile, dict, meta);

@@ -31,7 +31,10 @@ export function extractJsFile(content: string, sourceFile: string, data: SourceD
 
   walkAcorn(tree, {
     TemplateLiteral: (node: TemplateLiteral & Node) => {
-      pushRow(content.substring(node.start + 1, node.end - 1));
+      const v = content.substring(node.start + 1, node.end - 1);
+      if (needTranslate(v)) {
+        pushRow(v);
+      }
       return false;
     },
     Literal: (node: Literal & Node) => {

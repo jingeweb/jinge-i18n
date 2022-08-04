@@ -1,21 +1,34 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
+import glob from 'glob';
 // eslint-disable-next-line import/no-unresolved
 import { stringify as csvStringify } from 'csv-stringify/sync';
 // eslint-disable-next-line import/no-unresolved
 import { parse as csvParse } from 'csv-parse/sync';
-import { CWD, TranslateDir } from '../util';
+import { CWD, HtmlInlineTags, InlineTags, TranslateDir } from '../util';
 import { extractHtmlFile } from './html';
 import { SourceData } from './common';
-import { glob } from './helper';
+// import { glob } from './helper';
 import { extractJsFile } from './js';
 import { extractTsFile } from './ts';
 
-export function extract({ scanDirs, targetLocales }: { scanDirs: string[]; targetLocales: string[] }) {
+export function extract({
+  scanDirs,
+  targetLocales,
+  inlineTags,
+}: {
+  scanDirs: string[];
+  targetLocales: string[];
+  inlineTags: InlineTags;
+}) {
   // console.log(argv);
+  const AllInlineTags: InlineTags = {
+    ...inlineTags,
+    ...HtmlInlineTags,
+  };
 
-  const files = scanDirs.reduce((p, c) => p.concat(glob(path.resolve(CWD, c))), []);
+  const files = scanDirs.reduce((p, c) => p.concat(glob.sync(path.resolve(CWD, c))), []);
   // console.log(files);
   console.log('start scanning', files.length, 'files...');
   const data: SourceData = {
@@ -26,7 +39,7 @@ export function extract({ scanDirs, targetLocales }: { scanDirs: string[]; targe
     const content = fs.readFileSync(file, 'utf-8');
     switch (path.extname(file)) {
       case '.html':
-        extractHtmlFile(content, file, data);
+        extractHtmlFile(content, file, data, AllInlineTags);
         break;
       case '.js':
         extractJsFile(content, file, data);
