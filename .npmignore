@@ -4,7 +4,3 @@ node_modules
 /.vscode
 **/.DS_Store
 /build
-*.g4
-*.tokens
-*.interp
-.antlr

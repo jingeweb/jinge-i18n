@@ -3,7 +3,7 @@
     "module": "commonjs",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
-    "target": "es2020",
+    "target": "es2022",
     "noImplicitAny": true,
     "noImplicitReturns": true,
     "stripInternal": true,
@@ -11,16 +11,12 @@
     "allowJs": true,
     "moduleResolution": "node",
     "declaration": true,
+    "declarationDir": "compiler",
     "sourceMap": true,
-    "outDir": "lib",
-    "noEmit": true,
-    "baseUrl": ".",
-    "paths": {
-      
-    }
+    "outDir": ".tmp",
+    "baseUrl": "."
   },
   "include": [
-    "src/**/*",
     "tool/**/*"
   ]
 }

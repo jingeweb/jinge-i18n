@@ -3,12 +3,14 @@ const { promises: fs } = require('fs');
 const { execSync } = require('child_process');
 const esbuild = require('esbuild');
 const chokidar = require('chokidar');
+const { ComponentParser } = require('jinge-compiler');
 const debugTargetProjectDir = (() => {
   const dir = process.env.DEBUG_PROJECT;
   return dir ? path.join(dir, 'node_modules/jinge-compiler/lib') : undefined;
 })();
 const WATCH = process.env.WATCH === 'true';
 const ROOT_DIR = path.resolve(__dirname, '../');
+const COMP_DIR = path.join(ROOT_DIR, 'src/components');
 const DIST_LIB_DIR = path.resolve(process.cwd(), debugTargetProjectDir || 'lib');
 const DIST_COMPILER_DIR = path.resolve(__dirname, '../compiler');
 
@@ -31,7 +33,7 @@ async function transformFile(file) {
   const isSrc = rf.startsWith('src/');
   rf = rf.substring(isSrc ? 4 : 5);
 
-  const { code, map, warnings } = await esbuild.transform(src, {
+  let { code, map, warnings } = await esbuild.transform(src, {
     target: isSrc ? 'es2020' : 'node18',
     format: isSrc ? 'esm' : 'cjs',
     loader: path.extname(file).slice(1),
@@ -41,6 +43,11 @@ async function transformFile(file) {
   });
   if (warnings?.length) console.error(warnings);
   if (!code) return; // ignore empty file
+  if (file.startsWith(COMP_DIR)) {
+    code = ComponentParser.parse(code, null, {
+      resourcePath: file,
+    }).code;
+  }
   const distfile = path.join(isSrc ? DIST_LIB_DIR : DIST_COMPILER_DIR, rf.replace(/\.ts$/, '.js'));
   execSync(`mkdir -p ${path.dirname(distfile)}`);
   await Promise.all([

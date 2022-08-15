@@ -55,7 +55,7 @@ module.exports = {
       },
     },
     {
-      files: ['scripts/**/*.js', '*.js'],
+      files: ['scripts/**/*.js', '*.js', 'bin/**/*.js'],
       env: {
         node: true,
         browser: false,
