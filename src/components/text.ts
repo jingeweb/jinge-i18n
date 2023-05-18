@@ -24,10 +24,10 @@ export class TComponent extends Component {
   #t() {
     return (this.constructor as typeof TComponent).d(getLocale())(this[__].passedAttrs);
   }
-  __render(): Node[] {
+  __doRender() {
     return [textRenderFn(this, this.#t())];
   }
-  __update(): void {
+  __update() {
     setText(this[__].rootNodes[0] as HTMLElement, this.#t());
   }
 }
@@ -50,28 +50,31 @@ export class RComponent extends Component {
       this.__updateIfNeed();
     });
   }
-  __render(): Node[] {
+  __doRender() {
     const renderFn = (this.constructor as typeof RComponent).d(getLocale());
     return renderFn(this);
   }
-  __update() {
+
+  async __update() {
     const $ld = this.__lastDOM as Node;
-    const $pa = $ld.parentNode;
+    const $pa = $ld.parentNode as HTMLElement;
     const $ns = $ld.nextSibling;
-    this.__handleBeforeDestroy(true); // remove all doms
+    await this.__handleBeforeDestroy(true); // remove all doms
     this[__].rootNodes.length = 0;
 
     const renderFn = (this.constructor as typeof RComponent).d(getLocale());
-    const els = renderFn(this);
+    const els = await renderFn(this);
     const $newEl = els.length > 1 ? createFragment(els) : els[0];
     if ($ns) {
       $pa.insertBefore($ns, $newEl);
     } else {
       $pa.appendChild($newEl);
     }
-    this[__].rootNodes.forEach((n) => {
-      if (isComponent(n)) n.__handleAfterRender();
-    });
+    for await (const n of this[__].rootNodes) {
+      if (isComponent(n)) {
+        await n.__handleAfterRender();
+      }
+    }
   }
 
   __beforeDestroy(): void {

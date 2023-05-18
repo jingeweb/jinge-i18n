@@ -5,7 +5,7 @@ const yargs = require('yargs');
 const arg = yargs
   .strict()
   .usage('Usage: jinge-i18n [command] <options>')
-  .command('extract', 'extract all texts to translate', (yarg) => {
+  .command('extract', 'extract all texts to translate of {js,ts,html} files', (yarg) => {
     yarg
       .usage('Usage: jinge-i18n extract [options]')
       .option('inline-tag', {
@@ -26,12 +26,9 @@ const arg = yargs
         demandOption: true,
         describe: 'target locales to translate',
       })
+      .example('jinge-i18n extract --scan src --locale en', 'scan src directory and mark en as traget locale')
       .example(
-        "jinge-i18n extract --scan './src/**/*.{ts,html}' --locale en",
-        'scan src directory and mark en as traget locale',
-      )
-      .example(
-        "jinge-i18n extract --scan 'src/**/*.ts' 'src2/**/*.html' --locale en jp",
+        'jinge-i18n extract --scan src src2 --locale en jp',
         'scan src and src2 directories and mark en and jp as traget locales',
       );
   })
