@@ -24,7 +24,7 @@ export class TComponent extends Component {
   #t() {
     return (this.constructor as typeof TComponent).d(getLocale())(this[__].passedAttrs);
   }
-  __doRender() {
+  __render() {
     return [textRenderFn(this, this.#t())];
   }
   __update() {
@@ -50,34 +50,34 @@ export class RComponent extends Component {
       this.__updateIfNeed();
     });
   }
-  __doRender() {
+  __render() {
     const renderFn = (this.constructor as typeof RComponent).d(getLocale());
     return renderFn(this);
   }
 
-  async __update() {
+  __update() {
     const $ld = this.__lastDOM as Node;
     const $pa = $ld.parentNode as HTMLElement;
     const $ns = $ld.nextSibling;
-    await this.__handleBeforeDestroy(true); // remove all doms
+    this.__handleBeforeDestroy(true); // remove all doms
     this[__].rootNodes.length = 0;
 
     const renderFn = (this.constructor as typeof RComponent).d(getLocale());
-    const els = await renderFn(this);
+    const els = renderFn(this);
     const $newEl = els.length > 1 ? createFragment(els) : els[0];
     if ($ns) {
       $pa.insertBefore($ns, $newEl);
     } else {
       $pa.appendChild($newEl);
     }
-    for await (const n of this[__].rootNodes) {
+    for (const n of this[__].rootNodes) {
       if (isComponent(n)) {
-        await n.__handleAfterRender();
+        n.__handleAfterRender();
       }
     }
   }
 
-  __beforeDestroy(): void {
+  __beforeDestroy() {
     this.attrs = null;
   }
 }
@@ -101,7 +101,7 @@ export class AComponent extends Component {
     });
     this.c = vm((this.constructor as typeof AComponent).d.map((fn) => fn(getLocale())(attrs)));
   }
-  __update(): void {
+  __update() {
     (this.constructor as typeof AComponent).d.forEach((fn, i) => {
       const v = fn(getLocale())(this[__].passedAttrs);
       this.c[i] = v;

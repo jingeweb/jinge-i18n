@@ -44,14 +44,14 @@ export class SwitchLocaleComponent extends Component {
     });
   }
 
-  __doRender() {
+  __render() {
     const el = createEl(this);
     const roots = this[__].rootNodes;
     roots.push(el);
     return isComponent(el) ? el.__render() : (roots as Node[]);
   }
 
-  async __update() {
+  __update() {
     const roots = this[__].rootNodes;
     const el = roots[0];
     const fd = isComponent(el) ? el.__firstDOM : el;
@@ -59,18 +59,18 @@ export class SwitchLocaleComponent extends Component {
     const newEl = createEl(this);
     roots[0] = newEl;
     if (isComponent(newEl)) {
-      const nels = await newEl.__render();
+      const nels = newEl.__render();
       pa.insertBefore(nels.length > 1 ? createFragment(nels) : nels[0], fd);
     } else {
       pa.insertBefore(newEl, fd);
     }
     if (isComponent(el)) {
-      await el.__destroy();
+      el.__destroy();
     } else {
       pa.removeChild(el);
     }
     if (isComponent(newEl)) {
-      await newEl.__handleAfterRender();
+      newEl.__handleAfterRender();
     }
   }
 }
